@@ -71,9 +71,11 @@ Set environment variables in Vercel dashboard or via `vercel env add`.
 | Variable | Required | Purpose |
 | --- | --- | --- |
 | `OPENROUTER_API_KEY` | **Yes** | OpenRouter API key for LLM access |
-| `ALBY_ACCESS_TOKEN` | **Yes** | Alby Lightning wallet token for invoice creation/verification |
+| `ALBY_ACCESS_TOKEN` | Prod only | Alby Lightning wallet token for invoice creation/verification (`non-prod` falls back to demo mode when absent) |
 | `MODEL_NAME` | No | Model slug (defaults to `meta-llama/llama-3.1-8b-instruct:free`) |
 | `DEMO_MODE` | No | Set to `true` to run a local demo without Alby/OpenRouter credentials |
+| `WALLET_AUTH_SIGNING_SECRET` | No | HMAC secret used to sign wallet auth tokens from challenge verification |
+| `WALLET_AUTH_SATS` | No | One-time sats amount for wallet auth challenge (default `1`) |
 
 ### Getting API Keys
 
@@ -82,12 +84,47 @@ Set environment variables in Vercel dashboard or via `vercel env add`.
 
 ## API Usage (cURL Examples)
 
-The service uses a two-step API contract:
-- `POST /api/connect` to bind `clientId + agentId + wallet metadata`
+The service uses a wallet-authenticated API contract:
+- `POST /api/auth/wallet/challenge` to request a one-time auth invoice for wallet ownership proof
+- `POST /api/auth/wallet/verify` to verify payment proof and mint short-lived `walletAuthToken`
+- `POST /api/connect` to bind `clientId + agentId + wallet metadata` with valid `walletAuthToken`
 - `POST /api/infer` to run paid inference for connected pairs
 - `POST /api/resources` + `GET /api/resources` for metadata-only resource submission by connected pairs
 
-### Step 0: Connect Client + Agent
+### Step 0a: Request Wallet Auth Challenge
+
+```bash
+AUTH_CHALLENGE=$(curl -s -X POST http://localhost:3000/api/auth/wallet/challenge \
+  -H "Content-Type: application/json" \
+  -d '{
+    "walletType": "demo",
+    "walletRef": "local-wallet"
+  }')
+```
+
+In `DEMO_MODE=true`, use `preimage` from this response as wallet auth proof.
+
+### Step 0b: Verify Wallet Auth Proof
+
+```bash
+AUTH_PAYMENT_HASH=$(echo "$AUTH_CHALLENGE" | jq -r '.paymentHash')
+AUTH_PREIMAGE=$(echo "$AUTH_CHALLENGE" | jq -r '.preimage')
+
+AUTH_VERIFY=$(curl -s -X POST http://localhost:3000/api/auth/wallet/verify \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"walletType\": \"demo\",
+    \"walletRef\": \"local-wallet\",
+    \"clientId\": \"demo-client\",
+    \"agentId\": \"demo-agent\",
+    \"paymentHash\": \"$AUTH_PAYMENT_HASH\",
+    \"paymentProof\": \"$AUTH_PREIMAGE\"
+  }")
+
+WALLET_AUTH_TOKEN=$(echo "$AUTH_VERIFY" | jq -r '.walletAuthToken')
+```
+
+### Step 0c: Connect Client + Agent
 
 ```bash
 curl -X POST http://localhost:3000/api/connect \
@@ -96,7 +133,8 @@ curl -X POST http://localhost:3000/api/connect \
     "clientId": "demo-client",
     "agentId": "demo-agent",
     "walletType": "demo",
-    "walletRef": "local-wallet"
+    "walletRef": "local-wallet",
+    "walletAuthToken": "<wallet-auth-token-from-step-0b>"
   }'
 ```
 
@@ -178,50 +216,15 @@ X-Payment-Latency-Ms: 145
 ### One-Shot Example (Testing)
 
 ```bash
-# connect pair first
-CONNECTION_ID=$(curl -s -X POST http://localhost:3000/api/connect \
-  -H "Content-Type: application/json" \
-  -d '{"clientId":"demo-client","agentId":"demo-agent","walletType":"demo","walletRef":"local-wallet"}' | jq -r '.connectionId')
-
-# Get invoice
-RESPONSE=$(curl -s -X POST http://localhost:3000/api/infer \
-  -H "Content-Type: application/json" \
-  -d "{\"prompt\":\"Explain L402 protocol\",\"clientId\":\"demo-client\",\"agentId\":\"demo-agent\",\"connectionId\":\"$CONNECTION_ID\"}")
-
-# Extract preimage  
-PREIMAGE=$(echo "$RESPONSE" | jq -r '.preimage')
-
-# Make paid request
-curl -X POST http://localhost:3000/api/infer \
-  -H "Content-Type: application/json" \
-  -H "Authorization: L402 $PREIMAGE" \
-  -d "{\"prompt\":\"Explain L402 protocol\",\"clientId\":\"demo-client\",\"agentId\":\"demo-agent\",\"connectionId\":\"$CONNECTION_ID\"}"
+# Runs wallet-auth challenge + verify + connect + infer paid loop in one command (demo mode)
+BASE_URL=http://localhost:3000 bash scripts/closed-loop-demo.sh "Explain L402 protocol"
 ```
 
 ### API-Only Demo Path (No UI)
 
 ```bash
-# connect pair first
-CONNECTION_ID=$(curl -s -X POST http://localhost:3000/api/connect \
-  -H "Content-Type: application/json" \
-  -d '{"clientId":"demo-client","agentId":"demo-agent","walletType":"demo","walletRef":"local-wallet"}' | jq -r '.connectionId')
-
-# 1) request invoice (expect 402 payload)
-RESP=$(curl -s -X POST http://localhost:3000/api/infer \
-  -H "Content-Type: application/json" \
-  -d "{\"prompt\":\"Summarize L402 in one sentence\",\"clientId\":\"demo-client\",\"agentId\":\"demo-agent\",\"connectionId\":\"$CONNECTION_ID\"}")
-
-echo "$RESP" | jq .
-
-# 2) pay invoice with your Lightning wallet and get preimage
-#    (in local test flow, use preimage from the 402 JSON)
-PREIMAGE=$(echo "$RESP" | jq -r '.preimage')
-
-# 3) make authorized request
-curl -s -X POST http://localhost:3000/api/infer \
-  -H "Content-Type: application/json" \
-  -H "Authorization: L402 $PREIMAGE" \
-  -d "{\"prompt\":\"Summarize L402 in one sentence\",\"clientId\":\"demo-client\",\"agentId\":\"demo-agent\",\"connectionId\":\"$CONNECTION_ID\"}"
+# Use helper script (includes wallet-auth challenge and verification)
+BASE_URL=http://localhost:3000 bash scripts/closed-loop-demo.sh "Summarize L402 in one sentence"
 ```
 
 ### SDK-Style Helper (Connect + Infer + Retry)
@@ -243,24 +246,8 @@ DEMO_MODE=true npm run dev
 In another terminal:
 
 ```bash
-# connect pair first
-CONNECTION_ID=$(curl -s -X POST http://localhost:3000/api/connect \
-  -H "Content-Type: application/json" \
-  -d '{"clientId":"demo-client","agentId":"demo-agent","walletType":"demo","walletRef":"local-wallet"}' | jq -r '.connectionId')
-
-# 2) trigger 402 + invoice
-RESP=$(curl -s -X POST http://localhost:3000/api/infer \
-  -H "Content-Type: application/json" \
-  -d "{\"prompt\":\"What is L402?\",\"clientId\":\"demo-client\",\"agentId\":\"demo-agent\",\"connectionId\":\"$CONNECTION_ID\"}")
-
-echo "$RESP" | jq '{error, invoice, paymentHash, preimage, amountSats}'
-
-# 3) use demo preimage to send authorized request
-PREIMAGE=$(echo "$RESP" | jq -r '.preimage')
-curl -s -X POST http://localhost:3000/api/infer \
-  -H "Content-Type: application/json" \
-  -H "Authorization: L402 $PREIMAGE" \
-  -d "{\"prompt\":\"What is L402?\",\"clientId\":\"demo-client\",\"agentId\":\"demo-agent\",\"connectionId\":\"$CONNECTION_ID\"}"
+# full demo path with wallet auth + infer loop
+BASE_URL=http://localhost:3000 bash scripts/closed-loop-demo.sh "What is L402?"
 ```
 
 Expected behavior:

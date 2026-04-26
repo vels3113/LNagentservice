@@ -1,6 +1,7 @@
 import OpenAI from "openai";
 import {
   createInvoice,
+  isDemoModeEnabled,
   verifyPreimage,
   markUsed,
   type PaymentVerificationReason,
@@ -67,7 +68,7 @@ function verificationFailureResponse(reason?: PaymentVerificationReason): {
 export async function POST(req: Request) {
   const startTime = Date.now();
   let timings: InferenceTimings | null = null;
-  const demoMode = process.env.DEMO_MODE === "true";
+  const demoMode = isDemoModeEnabled();
 
   // Parse body
   let prompt: string;

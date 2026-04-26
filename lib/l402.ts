@@ -28,8 +28,20 @@ interface AlbyInvoiceResponse {
   expires_at: string;
 }
 
-function isDemoModeEnabled(): boolean {
-  return process.env.DEMO_MODE === "true";
+function isNonProductionDeployment(): boolean {
+  const vercelEnv = process.env.VERCEL_ENV;
+  if (vercelEnv) {
+    return vercelEnv !== "production";
+  }
+  return process.env.NODE_ENV !== "production";
+}
+
+export function isDemoModeEnabled(): boolean {
+  if (process.env.DEMO_MODE === "true") {
+    return true;
+  }
+  // Non-prod deployments fallback to demo mode when Alby credentials are absent.
+  return !process.env.ALBY_ACCESS_TOKEN && isNonProductionDeployment();
 }
 
 function createDemoInvoice(amountSats: number): Invoice {
@@ -55,7 +67,9 @@ export async function createInvoice(amountSats: number, memo: string): Promise<I
 
   const apiKey = process.env.ALBY_ACCESS_TOKEN;
   if (!apiKey) {
-    throw new Error("ALBY_ACCESS_TOKEN environment variable is required (or set DEMO_MODE=true for local demo)");
+    throw new Error(
+      "ALBY_ACCESS_TOKEN environment variable is required in production (or use DEMO_MODE=true / non-prod fallback)"
+    );
   }
 
   try {
