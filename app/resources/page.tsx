@@ -16,8 +16,8 @@ interface ResourceItem {
 }
 
 export default function ResourcesPage() {
-  const [clientId, setClientId] = useState("demo-client");
-  const [agentId, setAgentId] = useState("demo-agent");
+  const [clientId, setClientId] = useState("");
+  const [agentId, setAgentId] = useState("");
   const [connectionId, setConnectionId] = useState("");
   const [title, setTitle] = useState("");
   const [resourceType, setResourceType] = useState<ResourceType>("prompt_template");
@@ -112,11 +112,19 @@ export default function ResourcesPage() {
 
       <section className="mb-4 rounded-lg border bg-muted/20 p-4">
         <p className="text-xs text-muted-foreground">
-          Pair: <span className="font-mono">{clientId}</span> / <span className="font-mono">{agentId}</span>
+          Pair:{" "}
+          <span className="font-mono">
+            {clientId || "not connected"} / {agentId || "not connected"}
+          </span>
         </p>
         <p className="mt-1 text-xs text-muted-foreground">
           Connection: <span className="font-mono">{connectionId || "none"}</span>
         </p>
+        {!connectionId && (
+          <p className="mt-2 text-xs text-amber-700">
+            Complete signup first to associate resources with a valid connected agent.
+          </p>
+        )}
       </section>
 
       <form onSubmit={submitResource} className="space-y-2 rounded-lg border bg-muted/20 p-4">
@@ -124,13 +132,13 @@ export default function ResourcesPage() {
           value={title}
           onChange={(e) => setTitle(e.target.value)}
           placeholder="Resource title"
-          disabled={loading}
+          disabled={loading || !connectionId}
         />
         <select
           value={resourceType}
           onChange={(e) => setResourceType(e.target.value as ResourceType)}
           className="h-10 w-full rounded-md border bg-background px-3 text-sm"
-          disabled={loading}
+          disabled={loading || !connectionId}
         >
           <option value="prompt_template">prompt_template</option>
           <option value="context_text">context_text</option>
@@ -140,10 +148,10 @@ export default function ResourcesPage() {
           value={value}
           onChange={(e) => setValue(e.target.value)}
           placeholder="Template / text snippet / URL"
-          disabled={loading}
+          disabled={loading || !connectionId}
         />
         <div className="flex gap-2">
-          <Button type="submit" disabled={loading}>
+          <Button type="submit" disabled={loading || !connectionId}>
             Submit resource
           </Button>
           <Button type="button" variant="outline" onClick={fetchResources} disabled={loading}>
