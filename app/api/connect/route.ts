@@ -1,4 +1,5 @@
 import { registerClientConnection } from "@/lib/clients";
+import { verifyWalletAuthToken } from "@/lib/wallet-auth";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -10,6 +11,7 @@ export async function POST(req: Request) {
     agentId?: unknown;
     walletType?: unknown;
     walletRef?: unknown;
+    walletAuthToken?: unknown;
   };
 
   try {
@@ -23,12 +25,23 @@ export async function POST(req: Request) {
   const agentId = String(body.agentId ?? "").trim();
   const walletType = String(body.walletType ?? "").trim();
   const walletRef = String(body.walletRef ?? "").trim();
+  const walletAuthToken = String(body.walletAuthToken ?? "").trim();
 
-  if (!clientId || !agentId || !walletType || !walletRef) {
+  if (!clientId || !agentId || !walletType || !walletRef || !walletAuthToken) {
     return Response.json(
-      { error: "clientId, agentId, walletType, and walletRef are required" },
+      { error: "clientId, agentId, walletType, walletRef, and walletAuthToken are required" },
       { status: 400 }
     );
+  }
+
+  const authCheck = verifyWalletAuthToken(walletAuthToken, {
+    walletType,
+    walletRef,
+    clientId,
+    agentId,
+  });
+  if (!authCheck.valid) {
+    return Response.json({ error: "Invalid wallet authentication token", code: authCheck.reason }, { status: 401 });
   }
 
   const connection = registerClientConnection({
