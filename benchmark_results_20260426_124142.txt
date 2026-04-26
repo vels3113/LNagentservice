@@ -1,0 +1,32 @@
+Benchmarking 25 runs against http://localhost:3000 (TEST MODE)
+
+run,lightning_ms,llm_wall_ms,payment_within_llm_latency,payment_under_2s
+1,191,14261,true,true
+2,183,2672,true,true
+3,141,1028,true,true
+4,126,3998,true,true
+5,96,1015,true,true
+6,203,956,true,true
+7,150,1064,true,true
+8,159,929,true,true
+9,105,1006,true,true
+10,112,1643,true,true
+11,185,1788,true,true
+12,108,1888,true,true
+13,178,1656,true,true
+14,170,1892,true,true
+15,62,1535,true,true
+16,199,1672,true,true
+17,109,1702,true,true
+18,190,1650,true,true
+19,96,1731,true,true
+20,187,1559,true,true
+21,126,1588,true,true
+22,151,1577,true,true
+23,108,1727,true,true
+24,188,1534,true,true
+25,187,1622,true,true
+
+Results: 25/25 passes (payment < llm latency AND payment < 2s)
+
+CLAIM VERIFIED (TEST MODE): 25/25 runs passed (>= 80% threshold)
