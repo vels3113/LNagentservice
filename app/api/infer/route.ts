@@ -69,14 +69,10 @@ export async function POST(req: Request) {
 
   // Call LLM
   const apiKey = process.env.OPENROUTER_API_KEY;
-  if (!apiKey) {
+  const demoMode = process.env.DEMO_MODE === "true";
+  if (!apiKey && !demoMode) {
     return Response.json({ error: "Server misconfigured: missing OPENROUTER_API_KEY" }, { status: 500 });
   }
-
-  const client = new OpenAI({
-    apiKey,
-    baseURL: "https://openrouter.ai/api/v1",
-  });
 
   const model = process.env.MODEL_NAME || DEFAULT_MODEL;
 
@@ -84,6 +80,58 @@ export async function POST(req: Request) {
   if (timings) {
     timings.llmCallStartedAt = Date.now();
   }
+
+  if (demoMode) {
+    const demoResponse =
+      "L402 lets APIs return 402 with a Lightning invoice, then grant access after payment proof is provided.";
+    const tokens = demoResponse.split(" ");
+    const encoder = new TextEncoder();
+    let firstTokenReceived = false;
+
+    const stream = new ReadableStream({
+      async start(controller) {
+        try {
+          for (const token of tokens) {
+            await new Promise((resolve) => setTimeout(resolve, 40));
+            if (!firstTokenReceived && timings) {
+              timings.llmFirstTokenAt = Date.now();
+              firstTokenReceived = true;
+            }
+            controller.enqueue(encoder.encode(`${token} `));
+          }
+        } finally {
+          if (timings) {
+            timings.llmCompleteAt = Date.now();
+            logTimings(timings);
+          }
+          controller.close();
+        }
+      },
+    });
+
+    const latencyMs = Date.now() - startTime;
+    const paymentLatencyMs = timings?.paymentVerifiedAt
+      ? timings.paymentVerifiedAt - timings.invoiceGeneratedAt
+      : 0;
+
+    return new Response(stream, {
+      headers: {
+        "Content-Type": "text/plain; charset=utf-8",
+        "X-Payment-Hash": verification.paymentHash,
+        "X-Amount-Sats": String(PRICE_SATS),
+        "X-Latency-Ms": String(latencyMs),
+        "X-Payment-Latency-Ms": String(paymentLatencyMs),
+        "X-Invoice-Generated-At": String(timings?.invoiceGeneratedAt || startTime),
+        "X-Payment-Verified-At": String(timings?.paymentVerifiedAt || 0),
+        "X-Demo-Mode": "true",
+      },
+    });
+  }
+
+  const client = new OpenAI({
+    apiKey,
+    baseURL: "https://openrouter.ai/api/v1",
+  });
 
   let upstream;
   try {
