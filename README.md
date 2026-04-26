@@ -82,14 +82,49 @@ Set environment variables in Vercel dashboard or via `vercel env add`.
 
 ## API Usage (cURL Examples)
 
-The service exposes `/api/infer` endpoint implementing the full L402 flow:
+The service uses a two-step API contract:
+- `POST /api/connect` to bind `clientId + agentId + wallet metadata`
+- `POST /api/infer` to run paid inference for connected pairs
+- `POST /api/resources` + `GET /api/resources` for metadata-only resource submission by connected pairs
+
+### Step 0: Connect Client + Agent
+
+```bash
+curl -X POST http://localhost:3000/api/connect \
+  -H "Content-Type: application/json" \
+  -d '{
+    "clientId": "demo-client",
+    "agentId": "demo-agent",
+    "walletType": "demo",
+    "walletRef": "local-wallet"
+  }'
+```
+
+Expected response:
+```json
+{
+  "connectionId": "uuid",
+  "clientId": "demo-client",
+  "agentId": "demo-agent",
+  "walletType": "demo",
+  "walletRef": "local-wallet",
+  "createdAt": 1710000000000
+}
+```
+
+Then use the same `clientId`, `agentId`, and returned `connectionId` in infer requests.
 
 ### Step 1: Request Inference (Get 402 + Invoice)
 
 ```bash
 curl -X POST http://localhost:3000/api/infer \
   -H "Content-Type: application/json" \
-  -d '{"prompt": "What is Bitcoin Lightning Network?"}'
+  -d '{
+    "prompt": "What is Bitcoin Lightning Network?",
+    "clientId": "demo-client",
+    "agentId": "demo-agent",
+    "connectionId": "<connectionId-from-connect>"
+  }'
 ```
 
 **Response (402 Payment Required):**
@@ -100,9 +135,12 @@ curl -X POST http://localhost:3000/api/infer \
   "paymentHash": "abc123...",
   "preimage": "def456...",
   "amountSats": 100,
+  "model": "meta-llama/llama-3.1-8b-instruct:free",
   "expiresAt": 1640995200000
 }
 ```
+
+`amountSats` is dynamically selected by model pricing policy on the server.
 
 ### Step 2: Pay Invoice
 
@@ -116,7 +154,12 @@ For testing, use the provided `preimage` field.
 curl -X POST http://localhost:3000/api/infer \
   -H "Content-Type: application/json" \
   -H "Authorization: L402 <preimage-from-payment>" \
-  -d '{"prompt": "What is Bitcoin Lightning Network?"}'
+  -d '{
+    "prompt": "What is Bitcoin Lightning Network?",
+    "clientId": "demo-client",
+    "agentId": "demo-agent",
+    "connectionId": "<connectionId-from-connect>"
+  }'
 ```
 
 **Response (200 OK - Streaming):**
@@ -135,10 +178,15 @@ X-Payment-Latency-Ms: 145
 ### One-Shot Example (Testing)
 
 ```bash
+# connect pair first
+CONNECTION_ID=$(curl -s -X POST http://localhost:3000/api/connect \
+  -H "Content-Type: application/json" \
+  -d '{"clientId":"demo-client","agentId":"demo-agent","walletType":"demo","walletRef":"local-wallet"}' | jq -r '.connectionId')
+
 # Get invoice
 RESPONSE=$(curl -s -X POST http://localhost:3000/api/infer \
   -H "Content-Type: application/json" \
-  -d '{"prompt": "Explain L402 protocol"}')
+  -d "{\"prompt\":\"Explain L402 protocol\",\"clientId\":\"demo-client\",\"agentId\":\"demo-agent\",\"connectionId\":\"$CONNECTION_ID\"}")
 
 # Extract preimage  
 PREIMAGE=$(echo "$RESPONSE" | jq -r '.preimage')
@@ -147,16 +195,21 @@ PREIMAGE=$(echo "$RESPONSE" | jq -r '.preimage')
 curl -X POST http://localhost:3000/api/infer \
   -H "Content-Type: application/json" \
   -H "Authorization: L402 $PREIMAGE" \
-  -d '{"prompt": "Explain L402 protocol"}'
+  -d "{\"prompt\":\"Explain L402 protocol\",\"clientId\":\"demo-client\",\"agentId\":\"demo-agent\",\"connectionId\":\"$CONNECTION_ID\"}"
 ```
 
 ### API-Only Demo Path (No UI)
 
 ```bash
+# connect pair first
+CONNECTION_ID=$(curl -s -X POST http://localhost:3000/api/connect \
+  -H "Content-Type: application/json" \
+  -d '{"clientId":"demo-client","agentId":"demo-agent","walletType":"demo","walletRef":"local-wallet"}' | jq -r '.connectionId')
+
 # 1) request invoice (expect 402 payload)
 RESP=$(curl -s -X POST http://localhost:3000/api/infer \
   -H "Content-Type: application/json" \
-  -d '{"prompt":"Summarize L402 in one sentence"}')
+  -d "{\"prompt\":\"Summarize L402 in one sentence\",\"clientId\":\"demo-client\",\"agentId\":\"demo-agent\",\"connectionId\":\"$CONNECTION_ID\"}")
 
 echo "$RESP" | jq .
 
@@ -168,7 +221,14 @@ PREIMAGE=$(echo "$RESP" | jq -r '.preimage')
 curl -s -X POST http://localhost:3000/api/infer \
   -H "Content-Type: application/json" \
   -H "Authorization: L402 $PREIMAGE" \
-  -d '{"prompt":"Summarize L402 in one sentence"}'
+  -d "{\"prompt\":\"Summarize L402 in one sentence\",\"clientId\":\"demo-client\",\"agentId\":\"demo-agent\",\"connectionId\":\"$CONNECTION_ID\"}"
+```
+
+### SDK-Style Helper (Connect + Infer + Retry)
+
+```bash
+# with app running in demo mode
+BASE_URL=http://localhost:3000 bash scripts/closed-loop-demo.sh "Summarize L402"
 ```
 
 ## Demo Walkthrough (No External Keys)
@@ -183,10 +243,15 @@ DEMO_MODE=true npm run dev
 In another terminal:
 
 ```bash
+# connect pair first
+CONNECTION_ID=$(curl -s -X POST http://localhost:3000/api/connect \
+  -H "Content-Type: application/json" \
+  -d '{"clientId":"demo-client","agentId":"demo-agent","walletType":"demo","walletRef":"local-wallet"}' | jq -r '.connectionId')
+
 # 2) trigger 402 + invoice
 RESP=$(curl -s -X POST http://localhost:3000/api/infer \
   -H "Content-Type: application/json" \
-  -d '{"prompt":"What is L402?"}')
+  -d "{\"prompt\":\"What is L402?\",\"clientId\":\"demo-client\",\"agentId\":\"demo-agent\",\"connectionId\":\"$CONNECTION_ID\"}")
 
 echo "$RESP" | jq '{error, invoice, paymentHash, preimage, amountSats}'
 
@@ -195,7 +260,7 @@ PREIMAGE=$(echo "$RESP" | jq -r '.preimage')
 curl -s -X POST http://localhost:3000/api/infer \
   -H "Content-Type: application/json" \
   -H "Authorization: L402 $PREIMAGE" \
-  -d '{"prompt":"What is L402?"}'
+  -d "{\"prompt\":\"What is L402?\",\"clientId\":\"demo-client\",\"agentId\":\"demo-agent\",\"connectionId\":\"$CONNECTION_ID\"}"
 ```
 
 Expected behavior:
