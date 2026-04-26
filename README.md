@@ -73,6 +73,7 @@ Set environment variables in Vercel dashboard or via `vercel env add`.
 | `OPENROUTER_API_KEY` | **Yes** | OpenRouter API key for LLM access |
 | `ALBY_ACCESS_TOKEN` | **Yes** | Alby Lightning wallet token for invoice creation/verification |
 | `MODEL_NAME` | No | Model slug (defaults to `meta-llama/llama-3.1-8b-instruct:free`) |
+| `DEMO_MODE` | No | Set to `true` to run a local demo without Alby/OpenRouter credentials |
 
 ### Getting API Keys
 
@@ -169,6 +170,37 @@ curl -s -X POST http://localhost:3000/api/infer \
   -H "Authorization: L402 $PREIMAGE" \
   -d '{"prompt":"Summarize L402 in one sentence"}'
 ```
+
+## Demo Walkthrough (No External Keys)
+
+Use this when you want to demo the full flow locally without Lightning wallet setup.
+
+```bash
+# 1) start local server in demo mode
+DEMO_MODE=true npm run dev
+```
+
+In another terminal:
+
+```bash
+# 2) trigger 402 + invoice
+RESP=$(curl -s -X POST http://localhost:3000/api/infer \
+  -H "Content-Type: application/json" \
+  -d '{"prompt":"What is L402?"}')
+
+echo "$RESP" | jq '{error, invoice, paymentHash, preimage, amountSats}'
+
+# 3) use demo preimage to send authorized request
+PREIMAGE=$(echo "$RESP" | jq -r '.preimage')
+curl -s -X POST http://localhost:3000/api/infer \
+  -H "Content-Type: application/json" \
+  -H "Authorization: L402 $PREIMAGE" \
+  -d '{"prompt":"What is L402?"}'
+```
+
+Expected behavior:
+- first call returns `402` payload with invoice fields
+- second call streams an answer and includes `X-Demo-Mode: true`
 
 ## Benchmark Evidence
 
