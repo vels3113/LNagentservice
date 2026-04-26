@@ -86,21 +86,25 @@ export async function createInvoice(amountSats: number, memo: string): Promise<I
   }
 }
 
-export async function verifyPreimage(preimage: string): Promise<{ valid: boolean; paymentHash: string }> {
+export async function verifyPreimage(preimage: string): Promise<{
+  valid: boolean;
+  paymentHash: string;
+  reason?: "unknown_invoice" | "already_used" | "expired" | "unsettled_or_mismatch";
+}> {
   // Real L402: sha256(preimage) === paymentHash
   const computedHash = crypto.createHash("sha256").update(Buffer.from(preimage, "hex")).digest("hex");
 
   const invoice = invoices.get(computedHash);
   if (!invoice) {
-    return { valid: false, paymentHash: "" };
+    return { valid: false, paymentHash: "", reason: "unknown_invoice" };
   }
 
   if (invoice.used) {
-    return { valid: false, paymentHash: computedHash };
+    return { valid: false, paymentHash: computedHash, reason: "already_used" };
   }
 
   if (invoice.expiresAt < Date.now()) {
-    return { valid: false, paymentHash: computedHash };
+    return { valid: false, paymentHash: computedHash, reason: "expired" };
   }
 
   if (isDemoModeEnabled()) {
@@ -110,7 +114,7 @@ export async function verifyPreimage(preimage: string): Promise<{ valid: boolean
   // For real invoices, verify payment is settled with Alby
   const apiKey = process.env.ALBY_ACCESS_TOKEN;
   if (!apiKey) {
-    return { valid: false, paymentHash: computedHash };
+    return { valid: false, paymentHash: computedHash, reason: "unsettled_or_mismatch" };
   }
 
   try {
@@ -121,17 +125,21 @@ export async function verifyPreimage(preimage: string): Promise<{ valid: boolean
     });
 
     if (!response.ok) {
-      return { valid: false, paymentHash: computedHash };
+      return { valid: false, paymentHash: computedHash, reason: "unsettled_or_mismatch" };
     }
 
     const invoiceData = await response.json();
     const settled = Boolean(invoiceData?.settled);
     const settledPreimage = typeof invoiceData?.preimage === "string" ? invoiceData.preimage : "";
 
-    return { valid: settled && settledPreimage === preimage, paymentHash: computedHash };
+    if (!settled || settledPreimage !== preimage) {
+      return { valid: false, paymentHash: computedHash, reason: "unsettled_or_mismatch" };
+    }
+
+    return { valid: true, paymentHash: computedHash };
   } catch (error) {
     console.error("[L402] Failed to verify with Alby:", error);
-    return { valid: false, paymentHash: computedHash };
+    return { valid: false, paymentHash: computedHash, reason: "unsettled_or_mismatch" };
   }
 }
 
