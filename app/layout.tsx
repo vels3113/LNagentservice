@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "AI App",
-  description: "AI app skeleton",
+  title: "SatsForTokens",
+  description: "Agent-wallet Lightning payment gateway for paid inference",
 };
 
 export default function RootLayout({

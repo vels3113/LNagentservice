@@ -10,10 +10,10 @@ import { Input } from "@/components/ui/input";
 export default function SignupPage() {
   const router = useRouter();
   const [displayName, setDisplayName] = useState("");
-  const [clientId, setClientId] = useState("demo-client");
-  const [agentId, setAgentId] = useState("demo-agent");
-  const [walletType, setWalletType] = useState("demo");
-  const [walletRef, setWalletRef] = useState("local-wallet");
+  const [clientId, setClientId] = useState("");
+  const [agentId, setAgentId] = useState("");
+  const [walletType, setWalletType] = useState("");
+  const [walletRef, setWalletRef] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -81,28 +81,28 @@ export default function SignupPage() {
         <Input
           value={clientId}
           onChange={(e) => setClientId(e.target.value)}
-          placeholder="Client ID"
+          placeholder="Client ID (e.g. acme-client)"
           disabled={loading}
           aria-label="Client ID"
         />
         <Input
           value={agentId}
           onChange={(e) => setAgentId(e.target.value)}
-          placeholder="Agent ID"
+          placeholder="Agent ID (e.g. pricing-agent)"
           disabled={loading}
           aria-label="Agent ID"
         />
         <Input
           value={walletType}
           onChange={(e) => setWalletType(e.target.value)}
-          placeholder="Wallet type"
+          placeholder="Wallet type (e.g. alby)"
           disabled={loading}
           aria-label="Wallet type"
         />
         <Input
           value={walletRef}
           onChange={(e) => setWalletRef(e.target.value)}
-          placeholder="Wallet reference"
+          placeholder="Wallet reference (non-secret identifier)"
           disabled={loading}
           aria-label="Wallet reference"
         />

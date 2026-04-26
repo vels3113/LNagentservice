@@ -33,11 +33,6 @@ interface ConnectionData {
 
 export default function Home() {
   const [prompt, setPrompt] = useState("");
-  const [displayName, setDisplayName] = useState("Demo User");
-  const [clientId, setClientId] = useState("demo-client");
-  const [agentId, setAgentId] = useState("demo-agent");
-  const [walletType, setWalletType] = useState("demo");
-  const [walletRef, setWalletRef] = useState("local-wallet");
   const [connection, setConnection] = useState<ConnectionData | null>(null);
   const [response, setResponse] = useState("");
   const [loading, setLoading] = useState(false);
@@ -49,26 +44,6 @@ export default function Home() {
   const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
-    const rawProfile = localStorage.getItem("sats_signup_profile");
-    if (rawProfile) {
-      try {
-        const profile = JSON.parse(rawProfile) as {
-          displayName?: string;
-          clientId?: string;
-          agentId?: string;
-          walletType?: string;
-          walletRef?: string;
-        };
-        if (profile.displayName) setDisplayName(profile.displayName);
-        if (profile.clientId) setClientId(profile.clientId);
-        if (profile.agentId) setAgentId(profile.agentId);
-        if (profile.walletType) setWalletType(profile.walletType);
-        if (profile.walletRef) setWalletRef(profile.walletRef);
-      } catch {
-        // ignore invalid local storage payload
-      }
-    }
-
     const rawConnection = localStorage.getItem("sats_connection");
     if (rawConnection) {
       try {
@@ -82,40 +57,15 @@ export default function Home() {
     }
   }, []);
 
-  async function handleConnect() {
-    if (!displayName.trim() || !clientId.trim() || !agentId.trim() || !walletType.trim() || !walletRef.trim()) {
-      setError("displayName, clientId, agentId, walletType, and walletRef are required");
-      return;
-    }
-
-    setLoading(true);
+  function clearConnection() {
+    localStorage.removeItem("sats_connection");
+    setConnection(null);
+    setPaymentState("idle");
+    setInvoiceData(null);
+    setPaymentProof("");
+    setTimingMetrics(null);
+    setResponse("");
     setError(null);
-    try {
-      const res = await fetch("/api/connect", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ displayName, clientId, agentId, walletType, walletRef }),
-      });
-
-      if (!res.ok) {
-        const text = await res.text();
-        throw new Error(text || `Connect failed (${res.status})`);
-      }
-
-      const data = await res.json();
-      setConnection(data);
-      localStorage.setItem(
-        "sats_signup_profile",
-        JSON.stringify({ displayName, clientId, agentId, walletType, walletRef })
-      );
-      localStorage.setItem("sats_connection", JSON.stringify(data));
-    } catch (err: unknown) {
-      if (err instanceof Error) {
-        setError(err.message || "Failed to connect");
-      }
-    } finally {
-      setLoading(false);
-    }
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -139,8 +89,8 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           prompt,
-          clientId,
-          agentId,
+          clientId: connection.clientId,
+          agentId: connection.agentId,
           connectionId: connection.connectionId,
         }),
         signal: controller.signal,
@@ -198,8 +148,8 @@ export default function Home() {
         },
         body: JSON.stringify({
           prompt,
-          clientId,
-          agentId,
+          clientId: connection.clientId,
+          agentId: connection.agentId,
           connectionId: connection.connectionId,
         }),
       });
@@ -263,106 +213,118 @@ export default function Home() {
           SatsForTokens
         </h1>
         <p className="text-sm text-muted-foreground">
-          L402-gated AI inference. Pay Lightning sats, get tokens. No keys. No accounts.
+          L402-gated paid inference for client-owned agents and wallets.
         </p>
-        <Link href="/signup" className="mt-2 inline-block text-xs text-muted-foreground underline">
-          New here? Complete agent-wallet signup
-        </Link>
-        <Link href="/resources" className="ml-4 mt-2 inline-block text-xs text-muted-foreground underline">
-          Open resource workspace
-        </Link>
-        <Link href="/transactions" className="ml-4 mt-2 inline-block text-xs text-muted-foreground underline">
-          Open transaction monitor
-        </Link>
+
+        <section className="mt-4 rounded-lg border bg-muted/20 p-4">
+          <h2 className="mb-2 text-sm font-semibold">Customer journey</h2>
+          <ol className="space-y-1 text-xs text-muted-foreground">
+            <li className={connection ? "text-emerald-700" : ""}>
+              1. Sign up and connect your agent-wallet identity
+            </li>
+            <li className={connection ? "" : "opacity-70"}>2. Submit an inference request</li>
+            <li className={connection ? "" : "opacity-70"}>
+              3. Pay invoice and receive response + transaction trace
+            </li>
+          </ol>
+          {!connection && (
+            <Link href="/signup" className="mt-3 inline-block text-xs underline">
+              Start with agent-wallet signup
+            </Link>
+          )}
+        </section>
+
+        <div className="mt-3 flex flex-wrap gap-3 text-xs text-muted-foreground">
+          <Link href="/signup" className="underline">
+            Signup
+          </Link>
+          <Link href="/resources" className="underline">
+            Resources
+          </Link>
+          <Link href="/transactions" className="underline">
+            Transactions
+          </Link>
+        </div>
       </header>
 
-      <section className="mb-4 rounded-lg border bg-muted/20 p-4">
-        <h2 className="mb-3 text-sm font-semibold">1) Connect Client + Agent + Wallet</h2>
-        <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
-          <Input
-            value={displayName}
-            onChange={(e) => setDisplayName(e.target.value)}
-            placeholder="displayName"
-            disabled={loading}
-            aria-label="Display name"
-          />
-          <Input
-            value={clientId}
-            onChange={(e) => setClientId(e.target.value)}
-            placeholder="clientId"
-            disabled={loading}
-            aria-label="Client ID"
-          />
-          <Input
-            value={agentId}
-            onChange={(e) => setAgentId(e.target.value)}
-            placeholder="agentId"
-            disabled={loading}
-            aria-label="Agent ID"
-          />
-          <Input
-            value={walletType}
-            onChange={(e) => setWalletType(e.target.value)}
-            placeholder="walletType"
-            disabled={loading}
-            aria-label="Wallet type"
-          />
-          <Input
-            value={walletRef}
-            onChange={(e) => setWalletRef(e.target.value)}
-            placeholder="walletRef"
-            disabled={loading}
-            aria-label="Wallet reference"
-          />
-        </div>
-        <div className="mt-3 flex items-center gap-2">
-          <Button type="button" onClick={handleConnect} disabled={loading}>
-            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Connect"}
-          </Button>
-          {connection && (
-            <p className="text-xs text-emerald-700">
-              Connected{connection.displayName ? ` (${connection.displayName})` : ""}: {connection.connectionId}
+      {connection ? (
+        <section className="mb-4 rounded-lg border border-emerald-500/40 bg-emerald-500/10 p-4">
+          <h2 className="mb-2 text-sm font-semibold text-emerald-800">1) Agent-wallet connected</h2>
+          <div className="grid grid-cols-1 gap-1 text-xs text-emerald-700 md:grid-cols-2">
+            <p>
+              Client: <span className="font-mono">{connection.clientId}</span>
+            </p>
+            <p>
+              Agent: <span className="font-mono">{connection.agentId}</span>
+            </p>
+            <p>
+              Wallet type: <span className="font-mono">{connection.walletType}</span>
+            </p>
+            <p>
+              Wallet ref: <span className="font-mono">{connection.walletRef}</span>
+            </p>
+            <p className="md:col-span-2">
+              Connection: <span className="font-mono">{connection.connectionId}</span>
+            </p>
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Button type="button" variant="outline" onClick={clearConnection} disabled={loading}>
+              Disconnect
+            </Button>
+            <Link href="/signup" className="inline-flex items-center text-xs underline">
+              Edit signup data
+            </Link>
+          </div>
+        </section>
+      ) : (
+        <section className="mb-4 rounded-lg border border-yellow-500/40 bg-yellow-500/10 p-4 text-sm">
+          <h2 className="mb-1 font-semibold">1) Connect first</h2>
+          <p className="text-muted-foreground">
+            Complete signup once to connect your client, agent, and wallet before requesting inference.
+          </p>
+        </section>
+      )}
+
+      {connection ? (
+        <form onSubmit={handleSubmit} className="flex flex-col gap-2">
+          <h2 className="text-sm font-semibold">2) Submit paid inference request</h2>
+          <div className="flex gap-2">
+            <Input
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              placeholder="Enter inference prompt..."
+              disabled={loading || paymentState === "awaiting_payment"}
+              aria-label="Prompt"
+            />
+            <Button type="submit" disabled={loading || !prompt.trim() || paymentState === "awaiting_payment"}>
+              {loading ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <SendHorizonal className="h-4 w-4" />
+              )}
+            </Button>
+          </div>
+          {error && (
+            <p className="text-sm text-destructive" role="alert">
+              {error}
             </p>
           )}
-        </div>
-      </section>
-
-      <form onSubmit={handleSubmit} className="flex flex-col gap-2">
-        <div className="flex gap-2">
-          <Input
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            placeholder="Ask something..."
-            disabled={loading || paymentState === "awaiting_payment" || !connection}
-            aria-label="Prompt"
-          />
-          <Button
-            type="submit"
-            disabled={loading || !prompt.trim() || paymentState === "awaiting_payment" || !connection}
-          >
-            {loading ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <SendHorizonal className="h-4 w-4" />
-            )}
-          </Button>
-        </div>
-        {error && (
-          <p className="text-sm text-destructive" role="alert">
-            {error}
-          </p>
-        )}
-      </form>
+        </form>
+      ) : (
+        <section className="rounded-lg border bg-muted/10 p-4 text-sm text-muted-foreground">
+          Inference request panel unlocks after signup and connection.
+        </section>
+      )}
 
       {/* Payment Required State */}
       {paymentState === "awaiting_payment" && invoiceData && (
         <section className="mt-6 rounded-lg border border-yellow-500/50 bg-yellow-500/10 p-4">
           <h2 className="mb-2 flex items-center gap-2 font-semibold">
             <Zap className="h-4 w-4 text-yellow-500" />
-            Payment Required: {invoiceData.amountSats} sats
+            3) Payment required: {invoiceData.amountSats} sats
           </h2>
           <p className="mb-3 text-sm text-muted-foreground">
-            Pay the Lightning invoice to get your AI response, then submit the payment proof.
+            Pay the Lightning invoice to unlock the response, then submit payment proof.
           </p>
           <div className="mb-3 break-all rounded bg-muted/50 p-2 font-mono text-xs">
             {invoiceData.invoice}
@@ -395,7 +357,7 @@ export default function Home() {
         <div className="mt-4 rounded-lg border border-green-500/50 bg-green-500/10 p-3">
           <div className="flex items-center gap-2 text-sm font-medium text-green-700">
             <CheckCircle className="h-4 w-4" />
-            Payment Confirmed
+            Payment confirmed
           </div>
           <div className="mt-1 flex items-center gap-2 text-xs text-green-600">
             <Clock className="h-3 w-3" />
