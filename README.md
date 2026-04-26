@@ -133,7 +133,6 @@ curl -X POST http://localhost:3000/api/infer \
   "error": "Payment required",
   "invoice": "lnbc1000n1p...", 
   "paymentHash": "abc123...",
-  "preimage": "def456...",
   "amountSats": 100,
   "model": "meta-llama/llama-3.1-8b-instruct:free",
   "expiresAt": 1640995200000
@@ -141,12 +140,13 @@ curl -X POST http://localhost:3000/api/infer \
 ```
 
 `amountSats` is dynamically selected by model pricing policy on the server.
+`preimage` is returned only in `DEMO_MODE=true` for local testing.
 
 ### Step 2: Pay Invoice
 
 Pay the `invoice` with your Lightning wallet. In production, your wallet returns the preimage after payment settles.
 
-For testing, use the provided `preimage` field.
+For local testing (`DEMO_MODE=true`), use the provided `preimage` field from the 402 payload.
 
 ### Step 3: Authorized Request
 
@@ -266,6 +266,28 @@ curl -s -X POST http://localhost:3000/api/infer \
 Expected behavior:
 - first call returns `402` payload with invoice fields
 - second call streams an answer and includes `X-Demo-Mode: true`
+
+## Reusable Middleware Surface
+
+The core reusable interfaces for integrating L402 in other routes are:
+
+- `lib/clients.ts`
+  - `ClientConnectionInput`
+  - `registerClientConnection(input)`
+  - `isClientConnected(clientId, agentId)`
+  - `isConnectionIdValid(connectionId, clientId, agentId)`
+- `lib/l402.ts`
+  - `createInvoice(amountSats, memo)`
+  - `verifyPreimage(preimage)` returning `PaymentVerificationResult`
+  - `markUsed(paymentHash)`
+  - `PaymentVerificationReason` for explicit failure handling
+
+`app/api/infer/route.ts` demonstrates the reference middleware sequence:
+1. validate `clientId + agentId + connectionId`
+2. issue 402 challenge with invoice metadata
+3. verify payment proof (`Authorization: L402 <preimage>`)
+4. block replay with `markUsed`
+5. continue to protected resource (LLM streaming)
 
 ## Benchmark Evidence
 

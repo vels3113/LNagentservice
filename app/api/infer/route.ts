@@ -1,5 +1,10 @@
 import OpenAI from "openai";
-import { createInvoice, verifyPreimage, markUsed } from "@/lib/l402";
+import {
+  createInvoice,
+  verifyPreimage,
+  markUsed,
+  type PaymentVerificationReason,
+} from "@/lib/l402";
 import { isClientConnected, isConnectionIdValid } from "@/lib/clients";
 import { createTimings, logTimings, type InferenceTimings } from "@/lib/timing";
 import { upsertTransaction } from "@/lib/transactions";
@@ -18,6 +23,45 @@ const MODEL_PRICE_SATS: Record<string, number> = {
 
 function getPriceSatsForModel(model: string): number {
   return MODEL_PRICE_SATS[model] ?? DEFAULT_PRICE_SATS;
+}
+
+function verificationFailureResponse(reason?: PaymentVerificationReason): {
+  status: number;
+  error: string;
+  txStatus: "failed" | "expired" | "pending";
+} {
+  switch (reason) {
+    case "already_used":
+      return {
+        status: 409,
+        error: "Payment proof already consumed (replay blocked)",
+        txStatus: "failed",
+      };
+    case "expired":
+      return {
+        status: 410,
+        error: "Invoice expired. Request a new challenge.",
+        txStatus: "expired",
+      };
+    case "unknown_invoice":
+      return {
+        status: 401,
+        error: "Unknown payment proof for this invoice set",
+        txStatus: "failed",
+      };
+    case "unsettled_or_mismatch":
+      return {
+        status: 402,
+        error: "Payment not settled yet or proof mismatch",
+        txStatus: "pending",
+      };
+    default:
+      return {
+        status: 401,
+        error: "Invalid payment proof",
+        txStatus: "failed",
+      };
+  }
 }
 
 export async function POST(req: Request) {
@@ -117,6 +161,7 @@ export async function POST(req: Request) {
 
   if (!verification.valid) {
     const replayBlocked = verification.reason === "already_used";
+    const failure = verificationFailureResponse(verification.reason);
     console.log(
       JSON.stringify({
         client_id: clientId,
@@ -133,12 +178,12 @@ export async function POST(req: Request) {
         agentId,
         model,
         amountSats: priceSats,
-        status: verification.reason === "expired" ? "expired" : "failed",
+        status: failure.txStatus,
         replayBlocked,
         errorReason: verification.reason,
       });
     }
-    return Response.json({ error: "Invalid or expired payment" }, { status: 401 });
+    return Response.json({ error: failure.error }, { status: failure.status });
   }
 
   // Initialize timings for paid request

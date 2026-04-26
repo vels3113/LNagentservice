@@ -10,6 +10,18 @@ export interface Invoice {
   expiresAt: number;
 }
 
+export type PaymentVerificationReason =
+  | "unknown_invoice"
+  | "already_used"
+  | "expired"
+  | "unsettled_or_mismatch";
+
+export interface PaymentVerificationResult {
+  valid: boolean;
+  paymentHash: string;
+  reason?: PaymentVerificationReason;
+}
+
 interface AlbyInvoiceResponse {
   payment_request: string;
   payment_hash: string;
@@ -86,11 +98,7 @@ export async function createInvoice(amountSats: number, memo: string): Promise<I
   }
 }
 
-export async function verifyPreimage(preimage: string): Promise<{
-  valid: boolean;
-  paymentHash: string;
-  reason?: "unknown_invoice" | "already_used" | "expired" | "unsettled_or_mismatch";
-}> {
+export async function verifyPreimage(preimage: string): Promise<PaymentVerificationResult> {
   // Real L402: sha256(preimage) === paymentHash
   const computedHash = crypto.createHash("sha256").update(Buffer.from(preimage, "hex")).digest("hex");
 
