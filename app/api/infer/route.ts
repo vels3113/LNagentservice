@@ -1,5 +1,6 @@
 import OpenAI from "openai";
 import { createInvoice, verifyPreimage, markUsed } from "@/lib/l402";
+import { createTimings, logTimings, type InferenceTimings } from "@/lib/timing";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -9,6 +10,7 @@ const PRICE_SATS = 100;
 
 export async function POST(req: Request) {
   const startTime = Date.now();
+  let timings: InferenceTimings | null = null;
 
   // Parse body
   let prompt: string;
@@ -30,6 +32,10 @@ export async function POST(req: Request) {
   if (!l402Match) {
     // No payment — return 402 with invoice
     const invoice = await createInvoice(PRICE_SATS, `SatsForTokens: ${prompt.slice(0, 50)}`);
+    
+    // Initialize timing tracking
+    timings = createTimings(invoice.paymentHash);
+    
     return Response.json(
       {
         error: "Payment required",
@@ -48,11 +54,15 @@ export async function POST(req: Request) {
 
   // Verify preimage
   const preimage = l402Match[1];
-  const verification = verifyPreimage(preimage);
+  const verification = await verifyPreimage(preimage);
 
   if (!verification.valid) {
     return Response.json({ error: "Invalid or expired payment" }, { status: 401 });
   }
+
+  // Initialize timings for paid request
+  timings = createTimings(verification.paymentHash);
+  timings.paymentVerifiedAt = Date.now();
 
   // Mark as used (prevent replay)
   markUsed(verification.paymentHash);
@@ -69,6 +79,11 @@ export async function POST(req: Request) {
   });
 
   const model = process.env.MODEL_NAME || DEFAULT_MODEL;
+
+  // Start LLM request timing
+  if (timings) {
+    timings.llmCallStartedAt = Date.now();
+  }
 
   let upstream;
   try {
@@ -87,23 +102,41 @@ export async function POST(req: Request) {
 
   // Stream response
   const encoder = new TextEncoder();
+  let firstTokenReceived = false;
+  
   const stream = new ReadableStream({
     async start(controller) {
       try {
         for await (const chunk of upstream) {
           const token = chunk.choices?.[0]?.delta?.content;
-          if (token) controller.enqueue(encoder.encode(token));
+          if (token) {
+            // Mark first token timing
+            if (!firstTokenReceived && timings) {
+              timings.llmFirstTokenAt = Date.now();
+              firstTokenReceived = true;
+            }
+            controller.enqueue(encoder.encode(token));
+          }
         }
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : "unknown";
         controller.enqueue(encoder.encode(`\n[error: ${message}]`));
       } finally {
+        // Mark completion timing and log
+        if (timings) {
+          timings.llmCompleteAt = Date.now();
+          logTimings(timings);
+        }
         controller.close();
       }
     },
   });
 
   const latencyMs = Date.now() - startTime;
+  const paymentLatencyMs = timings?.paymentVerifiedAt 
+    ? timings.paymentVerifiedAt - timings.invoiceGeneratedAt 
+    : 0;
+  
   console.log(`[L402] Paid request: model=${model}, latency=${latencyMs}ms, hash=${verification.paymentHash.slice(0, 8)}...`);
 
   return new Response(stream, {
@@ -112,6 +145,9 @@ export async function POST(req: Request) {
       "X-Payment-Hash": verification.paymentHash,
       "X-Amount-Sats": String(PRICE_SATS),
       "X-Latency-Ms": String(latencyMs),
+      "X-Payment-Latency-Ms": String(paymentLatencyMs),
+      "X-Invoice-Generated-At": String(timings?.invoiceGeneratedAt || startTime),
+      "X-Payment-Verified-At": String(timings?.paymentVerifiedAt || 0),
     },
   });
 }
