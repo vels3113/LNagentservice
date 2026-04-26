@@ -267,6 +267,8 @@ Expected behavior:
 - first call returns `402` payload with invoice fields
 - second call streams an answer and includes `X-Demo-Mode: true`
 
+For a time-boxed recording script and shot checklist, use `DEMO_VIDEO_RUNBOOK.md`.
+
 ## Reusable Middleware Surface
 
 The core reusable interfaces for integrating L402 in other routes are:
