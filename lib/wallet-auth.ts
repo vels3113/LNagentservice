@@ -1,6 +1,7 @@
 import crypto from "crypto";
 import {
   createInvoice,
+  isDemoModeEnabled,
   markUsed,
   type Invoice,
   type PaymentVerificationReason,
@@ -100,7 +101,7 @@ export async function createWalletAuthChallenge(
     expiresAt: invoice.expiresAt,
     amountSats,
   };
-  if (process.env.DEMO_MODE === "true") {
+  if (isDemoModeEnabled()) {
     result.preimage = invoice.preimage;
   }
   return result;

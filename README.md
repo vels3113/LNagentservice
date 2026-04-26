@@ -71,7 +71,7 @@ Set environment variables in Vercel dashboard or via `vercel env add`.
 | Variable | Required | Purpose |
 | --- | --- | --- |
 | `OPENROUTER_API_KEY` | **Yes** | OpenRouter API key for LLM access |
-| `ALBY_ACCESS_TOKEN` | **Yes** | Alby Lightning wallet token for invoice creation/verification |
+| `ALBY_ACCESS_TOKEN` | Prod only | Alby Lightning wallet token for invoice creation/verification (`non-prod` falls back to demo mode when absent) |
 | `MODEL_NAME` | No | Model slug (defaults to `meta-llama/llama-3.1-8b-instruct:free`) |
 | `DEMO_MODE` | No | Set to `true` to run a local demo without Alby/OpenRouter credentials |
 | `WALLET_AUTH_SIGNING_SECRET` | No | HMAC secret used to sign wallet auth tokens from challenge verification |
