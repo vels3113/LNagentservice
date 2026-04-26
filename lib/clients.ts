@@ -10,6 +10,14 @@ export interface ClientConnection {
   createdAt: number;
 }
 
+export interface ClientConnectionInput {
+  displayName?: string;
+  clientId: string;
+  agentId: string;
+  walletType: string;
+  walletRef: string;
+}
+
 export interface ClientResource {
   resourceId: string;
   clientId: string;
@@ -53,13 +61,7 @@ export function isConnectionIdValid(
   return connectionId === expected;
 }
 
-export function registerClientConnection(input: {
-  displayName?: string;
-  clientId: string;
-  agentId: string;
-  walletType: string;
-  walletRef: string;
-}): ClientConnection {
+export function registerClientConnection(input: ClientConnectionInput): ClientConnection {
   const key = connectionKey(input.clientId, input.agentId);
   const existing = connections.get(key);
   if (existing) {

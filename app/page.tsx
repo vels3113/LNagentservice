@@ -11,7 +11,7 @@ type PaymentState = "idle" | "awaiting_payment" | "paid" | "streaming" | "comple
 interface InvoiceData {
   invoice: string;
   paymentHash: string;
-  preimage: string;
+  preimage?: string;
   amountSats: number;
 }
 
@@ -44,6 +44,7 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [paymentState, setPaymentState] = useState<PaymentState>("idle");
   const [invoiceData, setInvoiceData] = useState<InvoiceData | null>(null);
+  const [paymentProof, setPaymentProof] = useState("");
   const [timingMetrics, setTimingMetrics] = useState<TimingMetrics | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
@@ -147,8 +148,9 @@ export default function Home() {
 
       if (res.status === 402) {
         // Payment required
-        const data = await res.json();
+        const data = (await res.json()) as InvoiceData;
         setInvoiceData(data);
+        setPaymentProof(data.preimage ?? "");
         setPaymentState("awaiting_payment");
         setLoading(false);
         return;
@@ -174,16 +176,16 @@ export default function Home() {
 
   async function handlePay() {
     if (!invoiceData || !connection) return;
+    if (!paymentProof.trim()) {
+      setError("Payment proof is required. In demo mode this is auto-filled.");
+      return;
+    }
 
     setLoading(true);
     setError(null);
     const payStart = Date.now();
 
     try {
-      // For stub: use the preimage we got from the 402 response
-      // In real L402: wallet pays invoice and returns preimage
-      const preimage = invoiceData.preimage;
-
       const paymentLatencyMs = Date.now() - payStart;
       setPaymentState("paid");
 
@@ -192,7 +194,7 @@ export default function Home() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `L402 ${preimage}`,
+          Authorization: `L402 ${paymentProof.trim()}`,
         },
         body: JSON.stringify({
           prompt,
@@ -209,8 +211,6 @@ export default function Home() {
 
       // Extract timing metadata from response headers
       const totalLatencyMs = parseInt(res.headers.get("X-Latency-Ms") || "0");
-      const paymentLatencyFromServer = parseInt(res.headers.get("X-Payment-Latency-Ms") || "0");
-      
       setTimingMetrics({
         paymentMs: paymentLatencyMs,
         totalLatencyMs,
@@ -362,18 +362,30 @@ export default function Home() {
             Payment Required: {invoiceData.amountSats} sats
           </h2>
           <p className="mb-3 text-sm text-muted-foreground">
-            Pay the Lightning invoice to get your AI response.
+            Pay the Lightning invoice to get your AI response, then submit the payment proof.
           </p>
           <div className="mb-3 break-all rounded bg-muted/50 p-2 font-mono text-xs">
             {invoiceData.invoice}
           </div>
-          <Button onClick={handlePay} disabled={loading} className="w-full">
+          <Input
+            value={paymentProof}
+            onChange={(e) => setPaymentProof(e.target.value)}
+            placeholder={
+              invoiceData.preimage
+                ? "Demo proof prefilled (preimage)"
+                : "Paste wallet payment proof (preimage)"
+            }
+            className="mb-3"
+            disabled={loading}
+            aria-label="Payment proof"
+          />
+          <Button onClick={handlePay} disabled={loading || !paymentProof.trim()} className="w-full">
             {loading ? (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
             ) : (
               <Zap className="mr-2 h-4 w-4" />
             )}
-            Pay {invoiceData.amountSats} sats
+            Submit payment proof ({invoiceData.amountSats} sats)
           </Button>
         </section>
       )}
