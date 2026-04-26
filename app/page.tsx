@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { Loader2, SendHorizonal, Zap, CheckCircle, Clock, Activity } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -21,8 +22,23 @@ interface TimingMetrics {
   streamingStarted?: number;
 }
 
+interface ConnectionData {
+  connectionId: string;
+  displayName?: string | null;
+  clientId: string;
+  agentId: string;
+  walletType: string;
+  walletRef: string;
+}
+
 export default function Home() {
   const [prompt, setPrompt] = useState("");
+  const [displayName, setDisplayName] = useState("Demo User");
+  const [clientId, setClientId] = useState("demo-client");
+  const [agentId, setAgentId] = useState("demo-agent");
+  const [walletType, setWalletType] = useState("demo");
+  const [walletRef, setWalletRef] = useState("local-wallet");
+  const [connection, setConnection] = useState<ConnectionData | null>(null);
   const [response, setResponse] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -31,9 +47,79 @@ export default function Home() {
   const [timingMetrics, setTimingMetrics] = useState<TimingMetrics | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
+  useEffect(() => {
+    const rawProfile = localStorage.getItem("sats_signup_profile");
+    if (rawProfile) {
+      try {
+        const profile = JSON.parse(rawProfile) as {
+          displayName?: string;
+          clientId?: string;
+          agentId?: string;
+          walletType?: string;
+          walletRef?: string;
+        };
+        if (profile.displayName) setDisplayName(profile.displayName);
+        if (profile.clientId) setClientId(profile.clientId);
+        if (profile.agentId) setAgentId(profile.agentId);
+        if (profile.walletType) setWalletType(profile.walletType);
+        if (profile.walletRef) setWalletRef(profile.walletRef);
+      } catch {
+        // ignore invalid local storage payload
+      }
+    }
+
+    const rawConnection = localStorage.getItem("sats_connection");
+    if (rawConnection) {
+      try {
+        const existingConnection = JSON.parse(rawConnection) as ConnectionData;
+        if (existingConnection.connectionId) {
+          setConnection(existingConnection);
+        }
+      } catch {
+        // ignore invalid local storage payload
+      }
+    }
+  }, []);
+
+  async function handleConnect() {
+    if (!displayName.trim() || !clientId.trim() || !agentId.trim() || !walletType.trim() || !walletRef.trim()) {
+      setError("displayName, clientId, agentId, walletType, and walletRef are required");
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/connect", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ displayName, clientId, agentId, walletType, walletRef }),
+      });
+
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(text || `Connect failed (${res.status})`);
+      }
+
+      const data = await res.json();
+      setConnection(data);
+      localStorage.setItem(
+        "sats_signup_profile",
+        JSON.stringify({ displayName, clientId, agentId, walletType, walletRef })
+      );
+      localStorage.setItem("sats_connection", JSON.stringify(data));
+    } catch (err: unknown) {
+      if (err instanceof Error) {
+        setError(err.message || "Failed to connect");
+      }
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!prompt.trim() || loading) return;
+    if (!prompt.trim() || loading || !connection) return;
 
     setLoading(true);
     setError(null);
@@ -50,7 +136,12 @@ export default function Home() {
       const res = await fetch("/api/infer", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt }),
+        body: JSON.stringify({
+          prompt,
+          clientId,
+          agentId,
+          connectionId: connection.connectionId,
+        }),
         signal: controller.signal,
       });
 
@@ -82,7 +173,7 @@ export default function Home() {
   }
 
   async function handlePay() {
-    if (!invoiceData) return;
+    if (!invoiceData || !connection) return;
 
     setLoading(true);
     setError(null);
@@ -103,7 +194,12 @@ export default function Home() {
           "Content-Type": "application/json",
           Authorization: `L402 ${preimage}`,
         },
-        body: JSON.stringify({ prompt }),
+        body: JSON.stringify({
+          prompt,
+          clientId,
+          agentId,
+          connectionId: connection.connectionId,
+        }),
       });
 
       if (!res.ok || !res.body) {
@@ -169,7 +265,67 @@ export default function Home() {
         <p className="text-sm text-muted-foreground">
           L402-gated AI inference. Pay Lightning sats, get tokens. No keys. No accounts.
         </p>
+        <Link href="/signup" className="mt-2 inline-block text-xs text-muted-foreground underline">
+          New here? Complete agent-wallet signup
+        </Link>
+        <Link href="/resources" className="ml-4 mt-2 inline-block text-xs text-muted-foreground underline">
+          Open resource workspace
+        </Link>
+        <Link href="/transactions" className="ml-4 mt-2 inline-block text-xs text-muted-foreground underline">
+          Open transaction monitor
+        </Link>
       </header>
+
+      <section className="mb-4 rounded-lg border bg-muted/20 p-4">
+        <h2 className="mb-3 text-sm font-semibold">1) Connect Client + Agent + Wallet</h2>
+        <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+          <Input
+            value={displayName}
+            onChange={(e) => setDisplayName(e.target.value)}
+            placeholder="displayName"
+            disabled={loading}
+            aria-label="Display name"
+          />
+          <Input
+            value={clientId}
+            onChange={(e) => setClientId(e.target.value)}
+            placeholder="clientId"
+            disabled={loading}
+            aria-label="Client ID"
+          />
+          <Input
+            value={agentId}
+            onChange={(e) => setAgentId(e.target.value)}
+            placeholder="agentId"
+            disabled={loading}
+            aria-label="Agent ID"
+          />
+          <Input
+            value={walletType}
+            onChange={(e) => setWalletType(e.target.value)}
+            placeholder="walletType"
+            disabled={loading}
+            aria-label="Wallet type"
+          />
+          <Input
+            value={walletRef}
+            onChange={(e) => setWalletRef(e.target.value)}
+            placeholder="walletRef"
+            disabled={loading}
+            aria-label="Wallet reference"
+          />
+        </div>
+        <div className="mt-3 flex items-center gap-2">
+          <Button type="button" onClick={handleConnect} disabled={loading}>
+            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Connect"}
+          </Button>
+          {connection && (
+            <p className="text-xs text-emerald-700">
+              Connected{connection.displayName ? ` (${connection.displayName})` : ""}: {connection.connectionId}
+            </p>
+          )}
+        </div>
+      </section>
 
       <form onSubmit={handleSubmit} className="flex flex-col gap-2">
         <div className="flex gap-2">
@@ -177,10 +333,13 @@ export default function Home() {
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
             placeholder="Ask something..."
-            disabled={loading || paymentState === "awaiting_payment"}
+            disabled={loading || paymentState === "awaiting_payment" || !connection}
             aria-label="Prompt"
           />
-          <Button type="submit" disabled={loading || !prompt.trim() || paymentState === "awaiting_payment"}>
+          <Button
+            type="submit"
+            disabled={loading || !prompt.trim() || paymentState === "awaiting_payment" || !connection}
+          >
             {loading ? (
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : (
@@ -290,6 +449,12 @@ export default function Home() {
           </div>
         )}
       </section>
+
+      {!connection && (
+        <p className="mt-2 text-xs text-muted-foreground">
+          Connect first to unlock paid inference flow.
+        </p>
+      )}
 
       {/* Footer */}
       <footer className="mt-8 border-t pt-4 text-center text-xs text-muted-foreground">

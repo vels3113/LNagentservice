@@ -1,5 +1,8 @@
 export interface InferenceTimings {
   paymentHash: string;
+  clientId?: string;
+  agentId?: string;
+  model?: string;
   invoiceGeneratedAt: number;
   paymentVerifiedAt?: number;
   llmCallStartedAt?: number;
@@ -7,8 +10,17 @@ export interface InferenceTimings {
   llmCompleteAt?: number;
 }
 
-export function createTimings(paymentHash: string): InferenceTimings {
-  return { paymentHash, invoiceGeneratedAt: Date.now() };
+export function createTimings(
+  paymentHash: string,
+  metadata?: { clientId?: string; agentId?: string; model?: string }
+): InferenceTimings {
+  return {
+    paymentHash,
+    clientId: metadata?.clientId,
+    agentId: metadata?.agentId,
+    model: metadata?.model,
+    invoiceGeneratedAt: Date.now(),
+  };
 }
 
 export function logTimings(t: InferenceTimings): void {
@@ -24,11 +36,15 @@ export function logTimings(t: InferenceTimings): void {
   console.log(
     JSON.stringify({
       payment_hash: t.paymentHash,
+      client_id: t.clientId ?? null,
+      agent_id: t.agentId ?? null,
+      model: t.model ?? null,
       lightning_ms,
       llm_first_token_ms,
       llm_full_ms,
       claim_holds,
       claim_strong,
+      replay_blocked: false,
     })
   );
 }
