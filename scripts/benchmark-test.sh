@@ -46,10 +46,16 @@ for i in $(seq 1 "$N"); do
 
   # 3) Submit paid request and measure end-to-end model latency
   t_llm_start=$(date +%s%3N)
-  curl -s -X POST "$URL/api/infer" \
+  if ! curl -sfS -X POST "$URL/api/infer" \
     -H 'Content-Type: application/json' \
     -H "Authorization: L402 $preimage" \
-    -d "$PROMPT" >/dev/null 2>&1 || true
+    -d "$PROMPT" >/dev/null; then
+    t_llm_end=$(date +%s%3N)
+    llm_wall_ms=$((t_llm_end - t_llm_start))
+    echo "$i,ERROR,$llm_wall_ms,false,false  # paid request failed"
+    FAIL=$((FAIL + 1))
+    continue
+  fi
   t_llm_end=$(date +%s%3N)
   llm_wall_ms=$((t_llm_end - t_llm_start))
 
